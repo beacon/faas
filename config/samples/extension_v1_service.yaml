@@ -1,0 +1,10 @@
+apiVersion: extension.ethantang.top/v1
+kind: Service
+metadata:
+  name: service-sample
+spec:
+  selector:
+    app: web
+  ports:
+  - port: 8080
+    targetPort: 8080
