@@ -32,12 +32,20 @@ spec:
           spec:
             description: ServiceSpec defines the desired state of Service
             properties:
+              failoverSelector:
+                additionalProperties:
+                  type: string
+                description: FailoverSelector works when all endpoints of trafficSelectors are down. It will turn to be active with weight 1
+                type: object
+              loadBalanceMethod:
+                description: 'LoadBalanceMethod defines how to load balance between endpoints Available methods are defined in ipvs:'
+                type: string
               ports:
                 items:
                   description: ServicePort contains information on service's port.
                   properties:
                     appProtocol:
-                      description: The application protocol for this port. This field follows standard Kubernetes label syntax. Un-prefixed names are reserved for IANA standard service names (as per RFC-6335 and http://www.iana.org/assignments/service-names). Non-standard protocols should use prefixed names such as mycompany.com/my-custom-protocol. Field can be enabled with ServiceAppProtocol feature gate.
+                      description: The application protocol for this port. This field follows standard Kubernetes label syntax. Un-prefixed names are reserved for IANA standard service names (as per RFC-6335 and http://www.iana.org/assignments/service-names). Non-standard protocols should use prefixed names such as mycompany.com/my-custom-protocol. This is a beta field that is guarded by the ServiceAppProtocol feature gate and enabled by default.
                       type: string
                     name:
                       description: The name of this port within the service. This must be a DNS_LABEL. All ports within a ServiceSpec must have unique names. When considering the endpoints for a Service, this must match the 'name' field in the EndpointPort. Optional if only one ServicePort is defined on this service.
@@ -64,12 +72,8 @@ spec:
                   - port
                   type: object
                 type: array
-              selector:
-                additionalProperties:
-                  type: string
-                type: object
               trafficSelectors:
-                description: 'TrafficSelectors deeper selects traffic and distribute to sub endpoints Percent must be sumed up as 100 (TODO: may not necessary)'
+                description: 'TrafficSelectors deeper selects traffic and distribute to sub endpoints Percent must be sumed up as 100 (TODO: may not necessary) Endpoints should not overlap'
                 items:
                   description: TrafficSelector to select specified endpoints and allocate traffic
                   properties:
@@ -84,8 +88,12 @@ spec:
                   - selector
                   type: object
                 type: array
+              virtualIP:
+                description: 'VirtualIP manually given for the time being TODO: make it automatically allocated. Native kubernetes services are allocated from pool, avoiding such issue, but we have to take care of IP collision.'
+                type: string
             required:
-            - selector
+            - loadBalanceMethod
+            - virtualIP
             type: object
           status:
             description: ServiceStatus defines the observed state of Service

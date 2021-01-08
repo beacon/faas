@@ -3,8 +3,18 @@ kind: Service
 metadata:
   name: service-sample
 spec:
-  selector:
-    app: web
+  trafficSelectors:
+  - selector:
+      app: helloworld
+      version: v1
+    percent: 80
+  - selector:
+      app: helloworld
+      version: v2
+    percent: 20
+  failoverSelector:
+    app: activator
+  virtualIP: 10.0.99.1
   ports:
   - port: 8080
     targetPort: 8080

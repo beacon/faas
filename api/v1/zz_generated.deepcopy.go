@@ -94,18 +94,18 @@ func (in *ServiceSpec) DeepCopyInto(out *ServiceSpec) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.Selector != nil {
-		in, out := &in.Selector, &out.Selector
-		*out = make(map[string]string, len(*in))
-		for key, val := range *in {
-			(*out)[key] = val
-		}
-	}
 	if in.TrafficSelectors != nil {
 		in, out := &in.TrafficSelectors, &out.TrafficSelectors
 		*out = make([]TrafficSelector, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+	if in.FailoverSelector != nil {
+		in, out := &in.FailoverSelector, &out.FailoverSelector
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
 		}
 	}
 }

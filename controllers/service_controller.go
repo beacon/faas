@@ -18,17 +18,27 @@ package controllers
 
 import (
 	"context"
+	"log"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	extensionv1 "github.com/beacon/faas/api/v1"
+	"github.com/beacon/faas/pkg/ipvs"
+	"github.com/beacon/faas/pkg/utils/podutil"
 )
 
 // ServiceReconciler reconciles a Service object
 type ServiceReconciler struct {
+	IpvsInterface ipvs.Interface
 	client.Client
 	Log    logr.Logger
 	Scheme *runtime.Scheme
@@ -39,8 +49,7 @@ const finalizerName = "storage.finalizers.ethantang.top"
 // Reconcile r
 // +kubebuilder:rbac:groups=extension.ethantang.top,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=extension.ethantang.top,resources=services/status,verbs=get;update;patch
-func (r *ServiceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx := context.Background()
+func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("service", req.NamespacedName)
 
 	var svc extensionv1.Service
@@ -75,8 +84,43 @@ func (r *ServiceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 func (r *ServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&extensionv1.Service{}).
+		For(&extensionv1.Service{}).Watches(
+		&source.Kind{
+			Type: &corev1.Pod{},
+		},
+		&handler.Funcs{
+			CreateFunc:  r.onPodCreate,
+			UpdateFunc:  r.onPodUpdate,
+			DeleteFunc:  r.onPodDelete,
+			GenericFunc: r.onPodGeneric,
+		}).
 		Complete(r)
+}
+
+func (r *ServiceReconciler) onPodCreate(event event.CreateEvent, queue workqueue.RateLimitingInterface) {
+	log.Println("podcreated:", event.Object.GetName())
+	var pod corev1.Pod
+	err := r.Get(context.Background(), types.NamespacedName{
+		Namespace: event.Object.GetNamespace(),
+		Name:      event.Object.GetName()}, &pod)
+	if err != nil {
+		log.Println("failed to get pod:", err)
+	}
+	if podutil.IsPodReady(&pod) {
+		log.Println("Pod is ready:", pod.Status.PodIP)
+	}
+}
+
+func (r *ServiceReconciler) onPodUpdate(event event.UpdateEvent, queue workqueue.RateLimitingInterface) {
+	log.Println("podupdated:", event.ObjectNew.GetName())
+}
+
+func (r *ServiceReconciler) onPodDelete(event event.DeleteEvent, queue workqueue.RateLimitingInterface) {
+	log.Println("poddeleted:", event.Object.GetName())
+}
+
+func (r *ServiceReconciler) onPodGeneric(event event.GenericEvent, queue workqueue.RateLimitingInterface) {
+	log.Println("podgeneric event:", event.Object.GetName())
 }
 
 func hasFinalizer(s []string) bool {

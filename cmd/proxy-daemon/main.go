@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"log"
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -28,6 +29,8 @@ import (
 
 	extensionv1 "github.com/beacon/faas/api/v1"
 	"github.com/beacon/faas/controllers"
+	"github.com/beacon/faas/pkg/ipvs"
+	"k8s.io/utils/exec"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -43,13 +46,19 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
+// Options for program
+type Options struct {
+	MasterDevice   string
+	ClusterIPRange string
+}
+
 func main() {
+	var opts Options
 	var metricsAddr string
-	var enableLeaderElection bool
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&opts.MasterDevice, "masterDevice", "eth0", "Master device name")
+	flag.StringVar(&opts.ClusterIPRange, "clusterIPRange", "", "IP range for created services")
+
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -58,18 +67,26 @@ func main() {
 		Scheme:             scheme,
 		MetricsBindAddress: metricsAddr,
 		Port:               9443,
-		LeaderElection:     enableLeaderElection,
-		LeaderElectionID:   "19a69aee.ethantang.top",
+		LeaderElection:     false,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
+	dev := ipvs.NewDevice(ipvs.DummyDeviceName, opts.MasterDevice)
+	if err := dev.EnsureDevice(); err != nil {
+		log.Fatalln("failed to ensure device:", err)
+	}
+
+	execer := exec.New()
+	ipvsInterface := ipvs.New(execer)
+
 	if err = (&controllers.ServiceReconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("Service"),
-		Scheme: mgr.GetScheme(),
+		IpvsInterface: ipvsInterface,
+		Client:        mgr.GetClient(),
+		Log:           ctrl.Log.WithName("controllers").WithName("Service"),
+		Scheme:        mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Service")
 		os.Exit(1)

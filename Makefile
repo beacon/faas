@@ -1,6 +1,6 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= proxy-daemon:latest
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true"
 
@@ -11,19 +11,19 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
-all: manager
+all: proxy-daemon
 
 # Run tests
 test: generate fmt vet manifests
 	go test ./... -coverprofile cover.out
 
 # Build manager binary
-manager: generate fmt vet
-	go build -o bin/manager main.go
+proxy-daemon: generate fmt vet
+	go build -o bin/proxy-daemon ./cmd/proxy-daemon
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
-	go run ./main.go
+	go run ././cmd/proxy-daemon
 
 # Install CRDs into a cluster
 install: manifests
@@ -34,8 +34,8 @@ uninstall: manifests
 	kustomize build config/crd | kubectl delete -f -
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
-deploy: manifests
-	cd config/manager && kustomize edit set image controller=${IMG}
+deploy-proxy: manifests
+	cd config/proxy-daemon && kustomize edit set image controller=${IMG}
 	kustomize build config/default | kubectl apply -f -
 
 # Generate manifests e.g. CRD, RBAC etc.

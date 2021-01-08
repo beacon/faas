@@ -31,12 +31,23 @@ type ServiceSpec struct {
 
 	Ports []corev1.ServicePort `json:"ports,omitempty"`
 
-	Selector map[string]string `json:"selector"`
-
+	// VirtualIP manually given for the time being
+	// TODO: make it automatically allocated.
+	// Native kubernetes services are allocated from pool, avoiding such issue,
+	// but we have to take care of IP collision.
+	VirtualIP string `json:"virtualIP"`
+	// LoadBalanceMethod defines how to load balance between endpoints
+	// Available methods are defined in ipvs:
+	LoadBalanceMethod string `json:"loadBalanceMethod"`
 	// TrafficSelectors deeper selects traffic and distribute to sub endpoints
 	// Percent must be sumed up as 100 (TODO: may not necessary)
+	// Endpoints should not overlap
 	// +optional
 	TrafficSelectors []TrafficSelector `json:"trafficSelectors,omitempty"`
+
+	// FailoverSelector works when all endpoints of trafficSelectors are down.
+	// It will turn to be active with weight 1
+	FailoverSelector map[string]string `json:"failoverSelector,omitempty"`
 }
 
 // TrafficSelector to select specified endpoints and allocate traffic
