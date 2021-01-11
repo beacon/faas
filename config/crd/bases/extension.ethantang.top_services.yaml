@@ -37,9 +37,6 @@ spec:
                   type: string
                 description: FailoverSelector works when all endpoints of trafficSelectors are down. It will turn to be active with weight 1
                 type: object
-              loadBalanceMethod:
-                description: 'LoadBalanceMethod defines how to load balance between endpoints Available methods are defined in ipvs:'
-                type: string
               ports:
                 items:
                   description: ServicePort contains information on service's port.
@@ -72,6 +69,12 @@ spec:
                   - port
                   type: object
                 type: array
+              protocol:
+                description: Protocol of current service, default to tcp.
+                type: string
+              scheduler:
+                description: 'Scheduler defines how to load balance between endpoints Available methods are defined in ipvs:'
+                type: string
               trafficSelectors:
                 description: 'TrafficSelectors deeper selects traffic and distribute to sub endpoints Percent must be sumed up as 100 (TODO: may not necessary) Endpoints should not overlap'
                 items:
@@ -92,7 +95,7 @@ spec:
                 description: 'VirtualIP manually given for the time being TODO: make it automatically allocated. Native kubernetes services are allocated from pool, avoiding such issue, but we have to take care of IP collision.'
                 type: string
             required:
-            - loadBalanceMethod
+            - scheduler
             - virtualIP
             type: object
           status:

@@ -3,6 +3,7 @@ kind: Service
 metadata:
   name: service-sample
 spec:
+  scheduler: wrr
   trafficSelectors:
   - selector:
       app: helloworld

@@ -82,12 +82,14 @@ func main() {
 	execer := exec.New()
 	ipvsInterface := ipvs.New(execer)
 
-	if err = (&controllers.ServiceReconciler{
+	svcReconciler := &controllers.ServiceReconciler{
+		Device:        dev,
 		IpvsInterface: ipvsInterface,
 		Client:        mgr.GetClient(),
 		Log:           ctrl.Log.WithName("controllers").WithName("Service"),
 		Scheme:        mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	}
+	if err = svcReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Service")
 		os.Exit(1)
 	}
