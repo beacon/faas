@@ -218,10 +218,6 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func (r *ServiceReconciler) prepareRealServers() {
-
-}
-
 func (r *ServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.svcMetaMap = make(svcMetaMap)
 	return ctrl.NewControllerManagedBy(mgr).
@@ -251,21 +247,16 @@ func isPodReady(pod *corev1.Pod) bool {
 func (r *ServiceReconciler) handlePodChange(namespace, name string) error {
 	var pod corev1.Pod
 	ctx := context.Background()
-	err := r.Get(ctx, types.NamespacedName{
-		Namespace: namespace,
-		Name:      name,
-	}, &pod)
+	podNS := types.NamespacedName{Namespace: namespace, Name: name}
+	err := r.Get(ctx, podNS, &pod)
 	if err != nil {
 		return errors.Wrap(err, "failed to get pod")
 	}
-	if !podutil.IsPodReady(&pod) {
-		return errors.Wrap(nil, "pod is not ready")
+	if !isPodReady(&pod) {
+		return nil
 	}
-	if pod.Status.PodIP == "" {
-		return errors.Wrap(nil, "pod has no ip")
-	}
-
-	var podIPs []string
+	log := r.Log.WithValues("pod", podNS)
+	podIP := net.ParseIP(pod.Status.PodIP)
 	for item, trafficSelectors := range r.svcMetaMap {
 		for _, ts := range trafficSelectors.trafficSelectors {
 			matchTraffic := true
@@ -279,10 +270,43 @@ func (r *ServiceReconciler) handlePodChange(namespace, name string) error {
 				break
 			}
 
-			podIPs = append(podIPs)
 			var svc extensionv1.Service
 			if err := r.Get(ctx, item, &svc); err != nil {
 				return errors.Wrap(err, "failed to get service")
+			}
+			// When a pod is created/updated, two things to handle:
+			// 1. Should it be added or updated?
+			// 2. Maybe we can change the weight allocation in need?
+
+			// When a pod's corresponding real server need to be updated,
+			// either it's newly added or removed
+			err = ipvs.RangeServiceVirtualServers(&svc, func(vs *ipvs.VirtualServer, svcPort *corev1.ServicePort) error {
+				remainWeight := 1000
+				rss, err := r.IpvsInterface.GetRealServers(vs)
+				if err != nil {
+					return errors.Wrap(err, "failed to get real servers")
+				}
+				for _, rs := range rss {
+					if rs.Address.Equal(podIP) {
+						portNum, err := podutil.FindPort(&pod, svcPort)
+						if err != nil {
+							log.Info("failed to get port",
+								"servicePort", svcPort.TargetPort,
+								"namespace", pod.Namespace,
+								"pod", pod.Name)
+							continue
+						}
+						rs = &ipvs.RealServer{
+							Address: net.ParseIP(pod.Status.PodIP),
+							Port:    uint16(portNum),
+							Weight:  weightPerPod,
+						}
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return err
 			}
 		}
 	}

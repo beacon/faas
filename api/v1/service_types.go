@@ -28,10 +28,10 @@ import (
 type ServiceSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-
 	Ports []corev1.ServicePort `json:"ports,omitempty"`
 
 	// Protocol of current service, default to tcp.
+	// +optional
 	Protocol string `json:"protocol,omitempty"`
 	// VirtualIP manually given for the time being
 	// TODO: make it automatically allocated.
@@ -54,14 +54,21 @@ type ServiceSpec struct {
 
 // TrafficSelector to select specified endpoints and allocate traffic
 type TrafficSelector struct {
+	Name     string            `json:"name"`
 	Selector map[string]string `json:"selector"`
 	Percent  int32             `json:"percent,omitempty"`
 }
 
 // ServiceStatus defines the observed state of Service
 type ServiceStatus struct {
+	Endpoints map[string]ServiceEndpoints `json:"endpoints"`
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+}
+
+type ServiceEndpoints struct {
+	Pods  map[string]string `json:"pods"`
+	Ports map[string]string
 }
 
 // +kubebuilder:object:root=true
