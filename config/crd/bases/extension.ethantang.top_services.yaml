@@ -38,6 +38,7 @@ spec:
                 description: FailoverSelector works when all endpoints of trafficSelectors are down. It will turn to be active with weight 1
                 type: object
               ports:
+                description: 'INSERT ADDITIONAL SPEC FIELDS - desired state of cluster Important: Run "make" to regenerate code after modifying this file'
                 items:
                   description: ServicePort contains information on service's port.
                   properties:
@@ -80,6 +81,8 @@ spec:
                 items:
                   description: TrafficSelector to select specified endpoints and allocate traffic
                   properties:
+                    name:
+                      type: string
                     percent:
                       format: int32
                       type: integer
@@ -88,6 +91,7 @@ spec:
                         type: string
                       type: object
                   required:
+                  - name
                   - selector
                   type: object
                 type: array

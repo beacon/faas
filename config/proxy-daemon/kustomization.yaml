@@ -1,2 +1,11 @@
 resources:
 - proxy-daemon.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- name: proxy
+  newName: et1989/proxy-daemon
+  newTag: beta
+- name: proxy-daemon
+  newName: et1989/proxy-daemon
+  newTag: beta

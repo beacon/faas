@@ -6,9 +6,9 @@ metadata:
   name: system
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
-  name: controller-manager
+  name: proxy-daemon
   namespace: system
   labels:
     control-plain: proxy-daemon
@@ -16,19 +16,20 @@ spec:
   selector:
     matchLabels:
       control-plain: proxy-daemon
-  replicas: 1
   template:
     metadata:
       labels:
         control-plain: proxy-daemon
     spec:
+      hostNetwork: true
       containers:
       - command:
         - /proxy-daemon
-        args:
-        - --enable-leader-election
-        image: proxy-daemon:latest
-        name: proxy
+        image: "proxy-daemon:latest"
+        imagePullPolicy: Always
+        name: proxy-daemon
+        securityContext:
+          privileged: true
         resources:
           limits:
             cpu: 100m

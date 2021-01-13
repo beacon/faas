@@ -1,6 +1,6 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= proxy-daemon:latest
+IMG ?= et1989/proxy-daemon:beta
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true"
 
@@ -35,8 +35,8 @@ uninstall: manifests
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 deploy-proxy: manifests
-	cd config/proxy-daemon && kustomize edit set image controller=${IMG}
-	kustomize build config/default | kubectl apply -f -
+	cd config/proxy-daemon && kustomize edit set image proxy=${IMG}
+	kustomize build config/proxy-daemon | kubectl apply -f -
 
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen

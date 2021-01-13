@@ -63,6 +63,8 @@ const finalizerName = "storage.finalizers.ethantang.top"
 // Reconcile r
 // +kubebuilder:rbac:groups=extension.ethantang.top,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=extension.ethantang.top,resources=services/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=v1,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=v1,resources=pods/status,verbs=get
 func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("service", req.NamespacedName)
 
@@ -143,7 +145,7 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if len(podList.Items) == 0 {
 				return nil
 			}
-			availWeight := percent * magnifyFactor / 100
+			availWeight := percent * magnifyFactor
 			weightPerPod := availWeight / len(podList.Items)
 			for _, pod := range podList.Items {
 				if !isPodReady(&pod) {
@@ -244,19 +246,10 @@ func isPodReady(pod *corev1.Pod) bool {
 	return true
 }
 
-func (r *ServiceReconciler) handlePodChange(namespace, name string) error {
-	var pod corev1.Pod
-	ctx := context.Background()
-	podNS := types.NamespacedName{Namespace: namespace, Name: name}
-	err := r.Get(ctx, podNS, &pod)
-	if err != nil {
-		return errors.Wrap(err, "failed to get pod")
-	}
-	if !isPodReady(&pod) {
-		return nil
-	}
-	log := r.Log.WithValues("pod", podNS)
+func (r *ServiceReconciler) handlePodChange(ctx context.Context, pod *corev1.Pod, delete bool) error {
+	log := r.Log.WithValues("pod", types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name})
 	podIP := net.ParseIP(pod.Status.PodIP)
+
 	for item, trafficSelectors := range r.svcMetaMap {
 		for _, ts := range trafficSelectors.trafficSelectors {
 			matchTraffic := true
@@ -280,29 +273,83 @@ func (r *ServiceReconciler) handlePodChange(namespace, name string) error {
 
 			// When a pod's corresponding real server need to be updated,
 			// either it's newly added or removed
-			err = ipvs.RangeServiceVirtualServers(&svc, func(vs *ipvs.VirtualServer, svcPort *corev1.ServicePort) error {
-				remainWeight := 1000
+			err := ipvs.RangeServiceVirtualServers(&svc, func(vs *ipvs.VirtualServer, svcPort *corev1.ServicePort) error {
 				rss, err := r.IpvsInterface.GetRealServers(vs)
 				if err != nil {
 					return errors.Wrap(err, "failed to get real servers")
 				}
+				var totalWeight int
 				for _, rs := range rss {
-					if rs.Address.Equal(podIP) {
-						portNum, err := podutil.FindPort(&pod, svcPort)
-						if err != nil {
-							log.Info("failed to get port",
-								"servicePort", svcPort.TargetPort,
-								"namespace", pod.Namespace,
-								"pod", pod.Name)
-							continue
-						}
-						rs = &ipvs.RealServer{
-							Address: net.ParseIP(pod.Status.PodIP),
-							Port:    uint16(portNum),
-							Weight:  weightPerPod,
-						}
+					totalWeight += rs.Weight
+				}
+				if totalWeight == 0 {
+					totalWeight = 10 * int(ts.Percent)
+				}
+				var rsNum int
+				if !delete {
+					rsNum = len(rss) + 1
+				} else {
+					rsNum = len(rss) - 1
+					if rsNum < 0 {
+						rsNum = 0
 					}
 				}
+
+				foundPod := false
+				// Check if pod already there
+				for _, rs := range rss {
+					if rs.Address.Equal(podIP) {
+						foundPod = true
+						if !delete {
+							return nil
+						}
+						if err := r.IpvsInterface.DeleteRealServer(vs, rs); err != nil {
+							return err
+						}
+						break
+					}
+				}
+				if !foundPod && delete {
+					return nil
+				}
+
+				remainWeight := totalWeight
+				weightPerPod := totalWeight / rsNum
+				tolerance := totalWeight - weightPerPod*rsNum
+				for i, rs := range rss {
+					rs.Weight = weightPerPod
+					if i == len(rss)-1 {
+						rs.Weight += tolerance
+						tolerance = 0
+					}
+					remainWeight -= rs.Weight
+					if err := r.IpvsInterface.UpdateRealServer(vs, rs); err != nil {
+						return errors.Wrap(err, "failed to update real server")
+					}
+				}
+				if !delete {
+					portNum, err := podutil.FindPort(pod, svcPort)
+					if err != nil {
+						log.Info("failed to get port",
+							"servicePort", svcPort.TargetPort,
+							"namespace", pod.Namespace,
+							"pod", pod.Name)
+					}
+					rs := &ipvs.RealServer{
+						Address: net.ParseIP(pod.Status.PodIP),
+						Port:    uint16(portNum),
+						Weight:  weightPerPod,
+					}
+					if tolerance != 0 {
+						tolerance = 0
+						rs.Weight += tolerance
+					}
+					remainWeight -= rs.Weight
+					if err := r.IpvsInterface.AddRealServer(vs, rs); err != nil {
+						return errors.Wrap(err, "failed to add real server")
+					}
+				}
+
 				return nil
 			})
 			if err != nil {
@@ -316,7 +363,8 @@ func (r *ServiceReconciler) handlePodChange(namespace, name string) error {
 func (r *ServiceReconciler) onPodCreate(event event.CreateEvent, queue workqueue.RateLimitingInterface) {
 	log.Println("podcreated:", event.Object.GetName())
 	var pod corev1.Pod
-	err := r.Get(context.Background(), types.NamespacedName{
+	ctx := context.Background()
+	err := r.Get(ctx, types.NamespacedName{
 		Namespace: event.Object.GetNamespace(),
 		Name:      event.Object.GetName()}, &pod)
 	if err != nil {
@@ -325,14 +373,34 @@ func (r *ServiceReconciler) onPodCreate(event event.CreateEvent, queue workqueue
 	if !podutil.IsPodReady(&pod) || pod.Status.PodIP == "" {
 		return
 	}
+	if err := r.handlePodChange(ctx, &pod, false); err != nil {
+		log.Println("failed to handle pod change:", err)
+	}
 }
 
 func (r *ServiceReconciler) onPodUpdate(event event.UpdateEvent, queue workqueue.RateLimitingInterface) {
-	log.Println("podupdated:", event.ObjectNew.GetName())
+	ctx := context.Background()
+	oldPod, ok := event.ObjectOld.(*corev1.Pod)
+	if ok {
+		if err := r.handlePodChange(ctx, oldPod, false); err != nil {
+			log.Println("failed to handle pod change:", err)
+		}
+	}
+	newPod, ok := event.ObjectNew.(*corev1.Pod)
+	if ok {
+		if err := r.handlePodChange(ctx, newPod, false); err != nil {
+			log.Println("failed to handle pod change:", err)
+		}
+	}
 }
 
 func (r *ServiceReconciler) onPodDelete(event event.DeleteEvent, queue workqueue.RateLimitingInterface) {
-	log.Println("poddeleted:", event.Object.GetName())
+	pod, ok := event.Object.(*corev1.Pod)
+	if ok {
+		if err := r.handlePodChange(context.Background(), pod, true); err != nil {
+			log.Println("failed to handle pod delete:", err)
+		}
+	}
 }
 
 func (r *ServiceReconciler) onPodGeneric(event event.GenericEvent, queue workqueue.RateLimitingInterface) {

@@ -61,14 +61,8 @@ type TrafficSelector struct {
 
 // ServiceStatus defines the observed state of Service
 type ServiceStatus struct {
-	Endpoints map[string]ServiceEndpoints `json:"endpoints"`
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-}
-
-type ServiceEndpoints struct {
-	Pods  map[string]string `json:"pods"`
-	Ports map[string]string
 }
 
 // +kubebuilder:object:root=true
